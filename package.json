@@ -1,0 +1,26 @@
+{
+  "name": "arix-christmas-tree",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "three": "^0.170.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "@react-three/fiber": "^8.17.10",
+    "@react-three/drei": "^9.117.0",
+    "@react-three/postprocessing": "^2.16.0"
+  },
+  "devDependencies": {
+    "vite": "^6.0.0",
+    "typescript": "^5.0.0",
+    "@types/react": "^18.3.1",
+    "@types/react-dom": "^18.3.1",
+    "@types/three": "^0.170.0"
+  }
+}
