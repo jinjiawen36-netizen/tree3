@@ -1,129 +1,122 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Environment, Float, Sparkles, Text, Stars } from '@react-three/drei';
+import { OrbitControls, PerspectiveCamera, Float, Sparkles, Stars, Text } from '@react-three/drei';
 import * as THREE from 'three';
 
-const CONFIG = {
-  colors: {
-    emerald: '#002915',
-    gold: '#FFD700',
-    brightGold: '#FFFACD',
-    red: '#B22222',
-  }
-};
+// --- 核心：确保物体在视野内 ---
+const TreeContent = ({ mode }: { mode: 'TREE' | 'SCATTER' }) => {
+  const pointsRef = useRef<THREE.Points>(null);
+  const starRef = useRef<THREE.Mesh>(null);
 
-// --- 树顶星 (使用圆柱体模拟五角星，更稳定) ---
-const TopStar = ({ mode }: { mode: string }) => {
-  const ref = useRef<THREE.Group>(null);
-  useFrame((state) => {
-    if (ref.current) {
-      ref.current.position.y = mode === 'TREE' ? 5.5 : 20;
-      ref.current.rotation.y += 0.02;
-    }
-  });
-  return (
-    <group ref={ref}>
-      <mesh rotation={[Math.PI / 2, 0, 0]}>
-        <sphereGeometry args={[0.4, 32, 32]} />
-        <meshStandardMaterial 
-          color={CONFIG.colors.brightGold} 
-          emissive={CONFIG.colors.gold} 
-          emissiveIntensity={2} 
-        />
-      </mesh>
-      <pointLight intensity={20} distance={10} color={CONFIG.colors.gold} />
-    </group>
-  );
-};
-
-// --- 装饰物系统 (球 + 礼物盒) ---
-const Decoration = ({ mode }: { mode: string }) => {
-  const ballsRef = useRef<THREE.InstancedMesh>(null);
-  const boxesRef = useRef<THREE.InstancedMesh>(null);
-  const dummy = new THREE.Object3D();
-
-  const data = useMemo(() => {
-    return Array.from({ length: 100 }, (_, i) => {
+  const [positions, scatterPos] = useMemo(() => {
+    const p = [], s = [];
+    for (let i = 0; i < 15000; i++) {
+      // 生成圣诞树形状的坐标
       const yRatio = Math.random();
-      const a = Math.random() * Math.PI * 2;
+      const y = (yRatio - 0.5) * 10;
       const r = (1 - yRatio) * 3.5;
-      return {
-        tPos: new THREE.Vector3(Math.cos(a) * r, (yRatio - 0.5) * 10, Math.sin(a) * r),
-        sPos: new THREE.Vector3().randomDirection().multiplyScalar(Math.random() * 10 + 5),
-        curPos: new THREE.Vector3().randomDirection().multiplyScalar(20),
-        type: i % 3 === 0 ? 'box' : 'ball',
-        scale: Math.random() * 0.15 + 0.1
-      };
-    });
+      const a = Math.random() * Math.PI * 2;
+      p.push(Math.cos(a) * r, y, Math.sin(a) * r);
+      // 生成炸裂后的随机坐标
+      const sVec = new THREE.Vector3().randomDirection().multiplyScalar(Math.random() * 12 + 5);
+      s.push(sVec.x, sVec.y, sVec.z);
+    }
+    return [new Float32Array(p), new Float32Array(s)];
   }, []);
 
   useFrame((state, delta) => {
-    data.forEach((item, i) => {
-      const target = mode === 'SCATTERED' ? item.sPos : item.tPos;
-      item.curPos.lerp(target, delta * 2);
-      dummy.position.copy(item.curPos);
-      dummy.scale.setScalar(item.scale);
-      dummy.rotation.x += 0.01;
-      dummy.updateMatrix();
-      if (item.type === 'ball') ballsRef.current?.setMatrixAt(i, dummy.matrix);
-      else boxesRef.current?.setMatrixAt(i, dummy.matrix);
-    });
-    if (ballsRef.current) ballsRef.current.instanceMatrix.needsUpdate = true;
-    if (boxesRef.current) boxesRef.current.instanceMatrix.needsUpdate = true;
+    if (pointsRef.current) {
+      const mat = pointsRef.current.material as THREE.ShaderMaterial;
+      const target = mode === 'SCATTER' ? 1 : 0;
+      mat.uniforms.uProgress.value = THREE.MathUtils.lerp(mat.uniforms.uProgress.value, target, delta * 2);
+    }
+    if (starRef.current) {
+      starRef.current.rotation.y += 0.02;
+      starRef.current.position.y = mode === 'TREE' ? 5.5 : 20;
+    }
   });
 
   return (
     <group>
-      <instancedMesh ref={ballsRef} args={[undefined, undefined, 100]}>
-        <sphereGeometry args={[1, 16, 16]} />
-        <meshStandardMaterial metalness={1} roughness={0.1} color={CONFIG.colors.gold} />
-      </instancedMesh>
-      <instancedMesh ref={boxesRef} args={[undefined, undefined, 100]}>
-        <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial color={CONFIG.colors.red} metalness={0.5} roughness={0.5} />
-      </instancedMesh>
+      {/* 树顶黄金星 */}
+      <mesh ref={starRef} position={[0, 5.5, 0]}>
+        <sphereGeometry args={[0.5, 32, 32]} />
+        <meshStandardMaterial color="#FFD700" emissive="#FFD700" emissiveIntensity={5} />
+        <pointLight intensity={30} color="#FFD700" />
+      </mesh>
+
+      {/* 15000个发光粒子组成树体 */}
+      <points ref={pointsRef}>
+        <bufferGeometry>
+          <bufferAttribute attach="attributes-position" count={positions.length / 3} array={positions} itemSize={3} />
+          <bufferAttribute attach="attributes-aScatter" count={scatterPos.length / 3} array={scatterPos} itemSize={3} />
+        </bufferGeometry>
+        <shaderMaterial
+          transparent
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+          uniforms={{ uProgress: { value: 0 } }}
+          vertexShader={`
+            attribute vec3 aScatter;
+            uniform float uProgress;
+            void main() {
+              vec3 pos = mix(position, aScatter, uProgress);
+              vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+              gl_PointSize = 4.0 * (15.0 / -mvPosition.z);
+              gl_Position = projectionMatrix * mvPosition;
+            }
+          `}
+          fragmentShader={`
+            void main() {
+              float d = distance(gl_PointCoord, vec2(0.5));
+              if (d > 0.5) discard;
+              gl_FragColor = vec4(0.1, 0.8, 0.4, 1.0 - d * 2.0);
+            }
+          `}
+        />
+      </points>
     </group>
   );
 };
 
 export default function App() {
-  const [mode, setMode] = useState<'TREE' | 'SCATTERED'>('TREE');
+  const [mode, setMode] = useState<'TREE' | 'SCATTER'>('TREE');
 
   return (
-    <div style={{ width: '100vw', height: '100vh', background: 'radial-gradient(circle, #001a0a 0%, #000000 100%)' }}>
-      <Canvas camera={{ position: [0, 2, 15], fov: 45 }}>
-        {/* 增加雾气，让背景深邃，不会一片死黑 */}
-        <fog attach="fog" args={['#000', 10, 25]} />
+    <div style={{ width: '100vw', height: '100vh', background: '#000805' }}>
+      <Canvas>
+        {/* 强行设置相机位置，确保能看到中心点 */}
+        <PerspectiveCamera makeDefault position={[0, 2, 18]} fov={45} />
         
         <ambientLight intensity={0.5} />
-        <pointLight position={[10, 10, 10]} intensity={1.5} />
-        <Environment preset="city" />
+        <pointLight position={[10, 10, 10]} intensity={2} color="#FFD700" />
+        
+        {/* 背景氛围：星星和闪烁点 */}
+        <Stars radius={100} depth={50} count={5000} factor={4} saturation={0} fade speed={1} />
+        <Sparkles count={300} scale={15} size={2} speed={0.5} color="#FFD700" />
 
-        <Stars count={2000} factor={4} fade />
-        <Sparkles count={400} scale={15} size={2} speed={0.5} color="gold" />
+        <TreeContent mode={mode} />
 
-        <TopStar mode={mode} />
-        <Decoration mode={mode} />
-
-        <Text position={[0, 7, -2]} fontSize={1} color="gold" font="https://fonts.gstatic.com/s/playfairdisplay/v30/nuFv7ku5ot7QaAV7K_P_EucE6OT3NDVjwM6KPksV2JeZ.woff">
+        <Text position={[0, 8, -5]} fontSize={1.2} color="#FFD700" font="https://fonts.gstatic.com/s/playfairdisplay/v30/nuFv7ku5ot7QaAV7K_P_EucE6OT3NDVjwM6KPksV2JeZ.woff">
           MERRY CHRISTMAS
         </Text>
 
-        <OrbitControls enablePan={false} minDistance={5} maxDistance={25} />
+        <OrbitControls enablePan={false} />
       </Canvas>
 
-      <div style={{ position: 'absolute', bottom: '10%', width: '100%', textAlign: 'center' }}>
+      {/* 按钮样式优化：对齐参考图 */}
+      <div style={{ position: 'absolute', bottom: '10%', width: '100%', display: 'flex', justifyContent: 'center' }}>
         <button 
-          onClick={() => setMode(m => m === 'TREE' ? 'SCATTERED' : 'TREE')}
+          onClick={() => setMode(m => m === 'TREE' ? 'SCATTER' : 'TREE')}
           style={{
-            background: 'rgba(212, 175, 55, 0.2)',
+            background: 'rgba(212, 175, 55, 0.1)',
             border: '1px solid #D4AF37',
             color: '#D4AF37',
             padding: '12px 40px',
             fontSize: '14px',
-            letterSpacing: '2px',
-            cursor: 'pointer',
             borderRadius: '40px',
+            cursor: 'pointer',
+            letterSpacing: '2px',
             backdropFilter: 'blur(5px)',
             boxShadow: '0 0 20px rgba(212, 175, 55, 0.2)'
           }}
