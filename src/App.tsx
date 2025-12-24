@@ -1,7 +1,6 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Environment, Float, Stars, Sparkles, Text } from '@react-three/drei';
-import { EffectComposer, Bloom, Noise, Vignette, BrightnessContrast } from '@react-three/postprocessing';
+import { OrbitControls, Environment, Float, Sparkles, Text, Stars } from '@react-three/drei';
 import * as THREE from 'three';
 
 const CONFIG = {
@@ -9,69 +8,62 @@ const CONFIG = {
     emerald: '#002915',
     gold: '#FFD700',
     brightGold: '#FFFACD',
-    ribbon: '#8B0000', // 深红丝带
-  },
-  counts: { foliage: 12000, ornaments: 80, gifts: 40 }
+    red: '#B22222',
+  }
 };
 
-// --- 工具：生成树形坐标 ---
-const getTreePos = (yRatio: number, spread = 1) => {
-  const y = (yRatio - 0.5) * 10;
-  const r = (1 - yRatio) * 3.5 * spread;
-  const a = Math.random() * Math.PI * 2;
-  return new THREE.Vector3(Math.cos(a) * r, y, Math.sin(a) * r);
-};
-
-// --- 1. 氛围雪花层 ---
-const Snow = () => (
-  <Sparkles count={800} scale={20} size={1.5} speed={0.4} opacity={0.5} color="white" />
-);
-
-// --- 2. 树顶大星 ---
+// --- 树顶星 (使用圆柱体模拟五角星，更稳定) ---
 const TopStar = ({ mode }: { mode: string }) => {
   const ref = useRef<THREE.Group>(null);
   useFrame((state) => {
     if (ref.current) {
-      ref.current.position.y = mode === 'TREE' ? 5.2 : 15; // 炸裂时飞走
-      ref.current.rotation.y += 0.01;
+      ref.current.position.y = mode === 'TREE' ? 5.5 : 20;
+      ref.current.rotation.y += 0.02;
     }
   });
   return (
-    <Float speed={5} rotationIntensity={0.5} floatIntensity={0.5}>
-      <group ref={ref}>
-        <mesh>
-          <starGeometry args={[0.5, 0.2, 5]} />
-          <meshStandardMaterial color={CONFIG.colors.brightGold} emissive={CONFIG.colors.gold} emissiveIntensity={10} />
-        </mesh>
-        <pointLight intensity={10} distance={5} color={CONFIG.colors.gold} />
-      </group>
-    </Float>
+    <group ref={ref}>
+      <mesh rotation={[Math.PI / 2, 0, 0]}>
+        <sphereGeometry args={[0.4, 32, 32]} />
+        <meshStandardMaterial 
+          color={CONFIG.colors.brightGold} 
+          emissive={CONFIG.colors.gold} 
+          emissiveIntensity={2} 
+        />
+      </mesh>
+      <pointLight intensity={20} distance={10} color={CONFIG.colors.gold} />
+    </group>
   );
 };
 
-// --- 3. 混合装饰物系统 (球 + 礼物) ---
-const DecorSystem = ({ mode }: { mode: string }) => {
+// --- 装饰物系统 (球 + 礼物盒) ---
+const Decoration = ({ mode }: { mode: string }) => {
   const ballsRef = useRef<THREE.InstancedMesh>(null);
   const boxesRef = useRef<THREE.InstancedMesh>(null);
   const dummy = new THREE.Object3D();
 
   const data = useMemo(() => {
-    return Array.from({ length: 120 }, (_, i) => ({
-      tPos: getTreePos(Math.random()),
-      sPos: new THREE.Vector3().randomDirection().multiplyScalar(Math.random() * 10 + 5),
-      curPos: new THREE.Vector3(0, 0, 0),
-      type: i % 3 === 0 ? 'box' : 'ball',
-      scale: Math.random() * 0.2 + 0.1
-    }));
+    return Array.from({ length: 100 }, (_, i) => {
+      const yRatio = Math.random();
+      const a = Math.random() * Math.PI * 2;
+      const r = (1 - yRatio) * 3.5;
+      return {
+        tPos: new THREE.Vector3(Math.cos(a) * r, (yRatio - 0.5) * 10, Math.sin(a) * r),
+        sPos: new THREE.Vector3().randomDirection().multiplyScalar(Math.random() * 10 + 5),
+        curPos: new THREE.Vector3().randomDirection().multiplyScalar(20),
+        type: i % 3 === 0 ? 'box' : 'ball',
+        scale: Math.random() * 0.15 + 0.1
+      };
+    });
   }, []);
 
   useFrame((state, delta) => {
     data.forEach((item, i) => {
       const target = mode === 'SCATTERED' ? item.sPos : item.tPos;
-      item.curPos.lerp(target, delta * 2.5);
+      item.curPos.lerp(target, delta * 2);
       dummy.position.copy(item.curPos);
-      dummy.rotation.y += 0.01;
       dummy.scale.setScalar(item.scale);
+      dummy.rotation.x += 0.01;
       dummy.updateMatrix();
       if (item.type === 'ball') ballsRef.current?.setMatrixAt(i, dummy.matrix);
       else boxesRef.current?.setMatrixAt(i, dummy.matrix);
@@ -82,68 +74,58 @@ const DecorSystem = ({ mode }: { mode: string }) => {
 
   return (
     <group>
-      <instancedMesh ref={ballsRef} args={[undefined, undefined, 120]}>
-        <sphereGeometry args={[1, 24, 24]} />
-        <meshPhysicalMaterial color={CONFIG.colors.gold} metalness={1} roughness={0.1} envMapIntensity={2} />
+      <instancedMesh ref={ballsRef} args={[undefined, undefined, 100]}>
+        <sphereGeometry args={[1, 16, 16]} />
+        <meshStandardMaterial metalness={1} roughness={0.1} color={CONFIG.colors.gold} />
       </instancedMesh>
-      <instancedMesh ref={boxesRef} args={[undefined, undefined, 120]}>
+      <instancedMesh ref={boxesRef} args={[undefined, undefined, 100]}>
         <boxGeometry args={[1, 1, 1]} />
-        <meshPhysicalMaterial color="#8B0000" metalness={0.5} roughness={0.2} />
+        <meshStandardMaterial color={CONFIG.colors.red} metalness={0.5} roughness={0.5} />
       </instancedMesh>
     </group>
   );
 };
 
-// --- 主场景 ---
 export default function App() {
   const [mode, setMode] = useState<'TREE' | 'SCATTERED'>('TREE');
 
   return (
-    <div style={{ width: '100vw', height: '100vh', background: '#000' }}>
-      <Canvas dpr={[1, 2]}>
-        <color attach="background" args={['#000502']} />
-        <PerspectiveCamera makeDefault position={[0, 2, 12]} />
+    <div style={{ width: '100vw', height: '100vh', background: 'radial-gradient(circle, #001a0a 0%, #000000 100%)' }}>
+      <Canvas camera={{ position: [0, 2, 15], fov: 45 }}>
+        {/* 增加雾气，让背景深邃，不会一片死黑 */}
+        <fog attach="fog" args={['#000', 10, 25]} />
         
-        {/* 光影布置 */}
-        <ambientLight intensity={0.2} />
-        <spotLight position={[10, 10, 10]} angle={0.15} penumbra={1} intensity={200} color={CONFIG.colors.brightGold} />
+        <ambientLight intensity={0.5} />
+        <pointLight position={[10, 10, 10]} intensity={1.5} />
         <Environment preset="city" />
 
-        <Snow />
+        <Stars count={2000} factor={4} fade />
+        <Sparkles count={400} scale={15} size={2} speed={0.5} color="gold" />
+
         <TopStar mode={mode} />
-        <DecorSystem mode={mode} />
-        
-        {/* 参考图中的文字感 */}
-        <Float speed={2} rotationIntensity={0.2}>
-          <Text position={[0, 7, -2]} fontSize={0.8} color={CONFIG.colors.gold} font="https://fonts.gstatic.com/s/playfairdisplay/v30/nuFv7ku5ot7QaAV7K_P_EucE6OT3NDVjwM6KPksV2JeZ.woff">
-            MERRY CHRISTMAS
-          </Text>
-        </Float>
+        <Decoration mode={mode} />
 
-        {/* 核心：后期特效（打造电影感光晕） */}
-        <EffectComposer disableNormalPass>
-          <Bloom luminanceThreshold={0.2} mipmapBlur intensity={1.2} radius={0.4} />
-          <Noise opacity={0.05} />
-          <Vignette eskil={false} offset={0.1} darkness={0.8} />
-          <BrightnessContrast brightness={0.05} contrast={0.1} />
-        </EffectComposer>
+        <Text position={[0, 7, -2]} fontSize={1} color="gold" font="https://fonts.gstatic.com/s/playfairdisplay/v30/nuFv7ku5ot7QaAV7K_P_EucE6OT3NDVjwM6KPksV2JeZ.woff">
+          MERRY CHRISTMAS
+        </Text>
 
-        <OrbitControls enablePan={false} autoRotate={mode === 'TREE'} autoRotateSpeed={0.5} />
+        <OrbitControls enablePan={false} minDistance={5} maxDistance={25} />
       </Canvas>
 
       <div style={{ position: 'absolute', bottom: '10%', width: '100%', textAlign: 'center' }}>
         <button 
           onClick={() => setMode(m => m === 'TREE' ? 'SCATTERED' : 'TREE')}
           style={{
-            background: 'rgba(0, 41, 21, 0.8)',
-            border: `1px solid ${CONFIG.colors.gold}`,
-            color: CONFIG.colors.gold,
+            background: 'rgba(212, 175, 55, 0.2)',
+            border: '1px solid #D4AF37',
+            color: '#D4AF37',
             padding: '12px 40px',
             fontSize: '14px',
-            letterSpacing: '4px',
+            letterSpacing: '2px',
             cursor: 'pointer',
-            borderRadius: '2px',
-            backdropFilter: 'blur(10px)'
+            borderRadius: '40px',
+            backdropFilter: 'blur(5px)',
+            boxShadow: '0 0 20px rgba(212, 175, 55, 0.2)'
           }}
         >
           {mode === 'TREE' ? 'SCATTER FRAGMENTS' : 'REASSEMBLE MAGIC'}
